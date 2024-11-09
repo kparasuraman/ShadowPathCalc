@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/x-icon" href="https://openlayers.org/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Route Mapper</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="controls">
+      <div class="input-group">
+        <label for="start">Start Location:</label>
+        <input type="text" id="start" placeholder="Enter start location" />
+      </div>
+      <div class="input-group">
+        <label for="end">End Location:</label>
+        <input type="text" id="end" placeholder="Enter destination" />
+      </div>
+      <button id="calculate-button">Find Routes</button>
+    </div>
+    <div id="error-message"></div>
+    <div id="map" style="width: 100%; height: 500px;"></div>
+    <div id="routes"></div>
+
+    <script type="module" src="main.js"></script>
+  </body>
+</html>

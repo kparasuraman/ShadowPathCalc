@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Route Mapper</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@8.2.0/ol.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        #map {
+            width: 100%;
+            height: 70vh;
+            margin-bottom: 20px;
+        }
+        .controls {
+            padding: 20px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        input[type="text"] {
+            width: calc(100% - 20px);
+            padding: 8px;
+            margin-top: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        #routes {
+            margin-top: 20px;
+        }
+        .route-option {
+            padding: 15px;
+            border: 1px solid #ddd;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            background: white;
+            transition: background-color 0.2s;
+        }
+        .route-option:hover {
+            background: #f0f0f0;
+        }
+        #error-message {
+            color: #721c24;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            display: none;
+        }
+        .loading {
+            display: none;
+            margin: 10px 0;
+            color: #004085;
+            background-color: #cce5ff;
+            border: 1px solid #b8daff;
+            padding: 10px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <div class="input-group">
+            <label for="start">Start Location:</label>
+            <input type="text" id="start" placeholder="Enter start location">
+        </div>
+        <div class="input-group">
+            <label for="end">End Location:</label>
+            <input type="text" id="end" placeholder="Enter destination">
+        </div>
+        <button id="calculate-button">Find Routes</button>
+    </div>
+    <div id="error-message"></div>
+    <div id="loading" class="loading">Calculating routes...</div>
+    <div id="map"></div>
+    <div id="routes"></div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/ol@v10.2.1/dist/ol.js"></script>
+    
+    <script>
+        let map;
+        let vectorLayer;
+        let routeStyles;
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        function hideError() {
+            document.getElementById('error-message').style.display = 'none';
+        }
+
+        function highlightRoute(index) {
+            try {
+                const features = vectorLayer.getSource().getFeatures();
+                features.forEach((feature, i) => {
+                    if (i === index) {
+                        feature.setStyle(new ol.style.Style({
+                            stroke: new ol.style.Stroke({
+                                color: '#FF4081',
+                                width: 8
+                            })
+                        }));
+                    } else {
+                        feature.setStyle(routeStyles[i]);
+                    }
+                });
+            } catch (error) {
+                showError('Error highlighting route: ' + error.message);
+            }
+        }
+
+        function displayRoutes(routes) {
+            try {
+                if (!vectorLayer || !vectorLayer.getSource()) {
+                    throw new Error('Vector layer not initialized');
+                }
+
+                vectorLayer.getSource().clear();
+                const routesDiv = document.getElementById('routes');
+                routesDiv.innerHTML = '';
+
+                routes.forEach((route, index) => {
+                    const coordinates = route.coordinates.map(coord => ol.proj.fromLonLat(coord));
+                    const lineString = new ol.Feature({
+                        geometry: new ol.geom.LineString(coordinates)
+                    });
+
+                    if (routeStyles[index]) {
+                        lineString.setStyle(routeStyles[index]);
+                    }
+
+                    vectorLayer.getSource().addFeature(lineString);
+
+                    const routeElement = document.createElement('div');
+                    routeElement.className = 'route-option';
+                    routeElement.innerHTML = `
+                        <h3>${route.type}</h3>
+                        <p>Duration: ${route.duration}</p>
+                        <p>Distance: ${route.distance}</p>
+                    `;
+                    routeElement.onclick = () => highlightRoute(index);
+                    routesDiv.appendChild(routeElement);
+                });
+
+                const extent = vectorLayer.getSource().getExtent();
+                map.getView().fit(extent, { 
+                    padding: [50, 50, 50, 50],
+                    duration: 1000
+                });
+
+            } catch (error) {
+                showError('Error displaying routes: ' + error.message);
+            }
+        }
+
+        function calculateRoutes() {
+            try {
+                hideError();
+                const start = document.getElementById('start').value;
+                const end = document.getElementById('end').value;
+
+                if (!start || !end) {
+                    showError('Please enter both start and end locations');
+                    return;
+                }
+
+                document.getElementById('loading').style.display = 'block';
+
+                setTimeout(() => {
+                    const mockRoutes = [
+                        {
+                            duration: '30 mins',
+                            distance: '5.2 km',
+                            type: 'Fastest Route',
+                            coordinates: [
+                                [-74.006, 40.7128],
+                                [-74.0, 40.72],
+                                [-73.99, 40.73]
+                            ]
+                        },
+                        {
+                            duration: '35 mins',
+                            distance: '5.5 km',
+                            type: 'Alternative Route',
+                            coordinates: [
+                                [-74.006, 40.7128],
+                                [-74.01, 40.72],
+                                [-73.99, 40.73]
+                            ]
+                        },
+                        {
+                            duration: '40 mins',
+                            distance: '5.8 km',
+                            type: 'Scenic Route',
+                            coordinates: [
+                                [-74.006, 40.7128],
+                                [-74.02, 40.72],
+                                [-73.99, 40.73]
+                            ]
+                        }
+                    ];
+
+                    displayRoutes(mockRoutes);
+                    document.getElementById('loading').style.display = 'none';
+                }, 1000);
+
+            } catch (error) {
+                showError('Error calculating routes: ' + error.message);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof ol === 'undefined') {
+                showError('OpenLayers failed to load. Please check your internet connection and refresh the page.');
+                return;
+            }
+
+            routeStyles = [
+                new ol.style.Style({
+                    stroke: new ol.style.Stroke({
+                        color: 'rgba(76, 175, 80, 0.8)',
+                        width: 6
+                    })
+                }),
+                new ol.style.Style({
+                    stroke: new ol.style.Stroke({
+                        color: 'rgba(33, 150, 243, 0.8)',
+                        width: 6
+                    })
+                }),
+                new ol.style.Style({
+                    stroke: new ol.style.Stroke({
+                        color: 'rgba(255, 193, 7, 0.8)',
+                        width: 6
+                    })
+                })
+            ];
+
+            try {
+                const vectorSource = new ol.source.Vector();
+                vectorLayer = new ol.layer.Vector({
+                    source: vectorSource
+                });
+
+                map = new ol.Map({
+                    target: 'map',
+                    layers: [
+                        new ol.layer.Tile({
+                            source: new ol.source.OSM()
+                        }),
+                        vectorLayer
+                    ],
+                    view: new ol.View({
+                        center: ol.proj.fromLonLat([-74.006, 40.7128]), 
+                        zoom: 12,
+                        minZoom: 2,
+                        maxZoom: 19
+                    }),
+                    controls: ol.control.defaults()
+                });
+
+                document.getElementById('calculate-button').addEventListener('click', calculateRoutes);
+            } catch (error) {
+                showError('Error initializing map: ' + error.message);
+            }
+        });
+    </script>
+</body>
+</html>
