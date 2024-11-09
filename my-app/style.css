@@ -68,3 +68,22 @@ button:hover {
 .route-option:hover {
   background: #f0f0f0;
 }
+.autocomplete-suggestions {
+  position: absolute;
+  background-color: #fff;
+  border: 1px solid #ccc;
+  z-index: 1000;
+  max-height: 150px;
+  overflow-y: auto;
+  width: calc(100% - 20px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.autocomplete-suggestions div {
+  padding: 8px;
+  cursor: pointer;
+}
+
+.autocomplete-suggestions div:hover {
+  background-color: #e6e6e6;
+}
