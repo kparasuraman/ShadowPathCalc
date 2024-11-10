@@ -32,7 +32,7 @@ const vectorLayer = new VectorLayer({
 map.addLayer(vectorLayer);
 
 // OpenRouteService API details
-const apiKey = '5b3ce3597851110001cf62480c7b932376114d4cac551393de296382'; // Replace with your actual API key
+const apiKey = '5b3ce3597851110001cf62480c7b932376114d4cac551393de296382';
 const directionsUrl = 'https://api.openrouteservice.org/v2/directions/';
 const geocodeUrl = 'https://api.openrouteservice.org/geocode/search';
 
@@ -46,8 +46,15 @@ const errorDiv = document.getElementById('error-message');
 const loadingDiv = document.getElementById('loading');
 const routeList = document.getElementById('route-list');
 
-// Store the routes in an array
-let allRoutes = [];
+// Initialize route storage arrays - each will be a 2D array where each element is [longitude, latitude]
+let walkingRoutes = [];    // Store all walking routes
+let cyclingRoutes = [];    // Store all cycling routes
+let drivingRoutes = [];    // Store all driving routes
+let routeMetadata = {      // Store metadata for each route
+  walking: [],
+  cycling: [],
+  driving: []
+};
 
 // Show and clear error messages
 function showError(message) {
@@ -120,17 +127,51 @@ async function fetchAutocompleteSuggestions(query, inputElement, suggestionsElem
   }
 }
 
+// Function to store route data in appropriate arrays
+function storeRouteData(routeType, coordinates, metadata) {
+  switch (routeType) {
+    case 'foot-walking':
+      walkingRoutes.push(coordinates);
+      routeMetadata.walking.push(metadata);
+      break;
+    case 'cycling-regular':
+      cyclingRoutes.push(coordinates);
+      routeMetadata.cycling.push(metadata);
+      break;
+    case 'driving-car':
+      drivingRoutes.push(coordinates);
+      routeMetadata.driving.push(metadata);
+      break;
+  }
+}
+
+// Function to clear previous routes
+function clearRoutes() {
+  walkingRoutes = [];
+  cyclingRoutes = [];
+  drivingRoutes = [];
+  routeMetadata = {
+    walking: [],
+    cycling: [],
+    driving: []
+  };
+  vectorSource.clear();
+  routeList.innerHTML = '';
+}
+
 // Function to fetch routes with completely different parameters
 async function fetchRoutes(startCoords, endCoords) {
+  clearRoutes();
+  
   const randomRouteParams = [
     {
       type: 'foot-walking',
-      avoidPolygons: Math.random() > 0.5,  
-      avoidAreas: Math.random() > 0.5,     
-      preferredRoute: ['shortest', 'fastest', 'recommended'][Math.floor(Math.random() * 3)], 
-      maxAlternatives: Math.floor(Math.random() * 4) + 1, 
-      routeGeometry: Math.random() > 0.5 ? 'false' : 'true', 
-      avoidRoads: Math.random() > 0.5 ? 'highways' : 'residential', 
+      avoidPolygons: Math.random() > 0.5,
+      avoidAreas: Math.random() > 0.5,
+      preferredRoute: ['shortest', 'fastest', 'recommended'][Math.floor(Math.random() * 3)],
+      maxAlternatives: Math.floor(Math.random() * 4) + 1,
+      routeGeometry: Math.random() > 0.5 ? 'false' : 'true',
+      avoidRoads: Math.random() > 0.5 ? 'highways' : 'residential',
       waypoints: `${startCoords[0] + Math.random() * 0.01},${startCoords[1] + Math.random() * 0.01}|${endCoords[0] + Math.random() * 0.01},${endCoords[1] + Math.random() * 0.01}`,
     },
     {
@@ -156,7 +197,6 @@ async function fetchRoutes(startCoords, endCoords) {
   ];
 
   let allCoordinates = [];
-
   const routeRequests = randomRouteParams.map((params) => {
     return fetch(
       `${directionsUrl}${params.type}?api_key=${apiKey}&start=${startCoords.join(',')}&end=${endCoords.join(',')}` +
@@ -171,21 +211,32 @@ async function fetchRoutes(startCoords, endCoords) {
     const responses = await Promise.all(routeRequests);
     const routesData = await Promise.all(responses.map((response) => response.json()));
 
-    routeList.innerHTML = '';
-
     routesData.forEach((data, index) => {
       if (data.features && data.features.length > 0) {
         data.features.forEach((selectedRoute, idx) => {
-          const routeCoordinates = selectedRoute.geometry.coordinates.map((coord) =>
-            fromLonLat(coord)
+          // Extract the route coordinates
+          const routeCoordinates = selectedRoute.geometry.coordinates.map((coord) => [coord[0], coord[1]]);
+          
+          // Store route data
+          storeRouteData(
+            randomRouteParams[index].type,
+            routeCoordinates,
+            {
+              summary: selectedRoute.properties.summary,
+              distance: selectedRoute.properties.distance,
+              duration: selectedRoute.properties.duration
+            }
           );
-          const routeLine = new LineString(routeCoordinates);
+
+          // Add coordinates to allCoordinates for map fitting
+          allCoordinates = allCoordinates.concat(routeCoordinates);
+
+          // Create and style route feature for map
+          const mapCoordinates = routeCoordinates.map((coord) => fromLonLat(coord));
+          const routeLine = new LineString(mapCoordinates);
           const routeFeature = new Feature({ geometry: routeLine });
 
-          allCoordinates = [...allCoordinates, ...routeCoordinates];
-
           const randomColor = `rgb(${Math.floor(Math.random() * 256)}, ${Math.floor(Math.random() * 256)}, ${Math.floor(Math.random() * 256)})`;
-
           routeFeature.setStyle(
             new Style({
               stroke: new Stroke({
@@ -198,20 +249,14 @@ async function fetchRoutes(startCoords, endCoords) {
 
           vectorSource.addFeature(routeFeature);
 
+          // Add route to list
           const routeItem = document.createElement('div');
-          routeItem.textContent = `Route ${idx + 1}: ${selectedRoute.properties.summary}`;
+          routeItem.textContent = `${randomRouteParams[index].type} Route ${idx + 1}: ${selectedRoute.properties.summary}`;
           routeList.appendChild(routeItem);
-
-          allRoutes.push({
-            summary: selectedRoute.properties.summary,
-            coordinates: routeCoordinates,
-            distance: selectedRoute.properties.distance,
-            duration: selectedRoute.properties.duration,
-            type: randomRouteParams[index].type,
-          });
         });
       }
     });
+
     calculateAzimuth(startCoords, endCoords);
     const extent = olExtent.boundingExtent(allCoordinates);
     map.getView().fit(extent, { padding: [20, 20, 20, 20], duration: 1000 });
@@ -241,7 +286,6 @@ calculateButton.addEventListener('click', async () => {
   try {
     const startCoords = await fetchCoordinates(startLocation);
     const endCoords = await fetchCoordinates(endLocation);
-
     await fetchRoutes(startCoords, endCoords);
   } catch (error) {
     showError(error.message);
@@ -257,17 +301,58 @@ startInput.addEventListener('input', () => {
 endInput.addEventListener('input', () => {
   fetchAutocompleteSuggestions(endInput.value, endInput, endSuggestions);
 });
-
- function calculateAzimuth(startCoords, endCoords) {
+// Initialize and process the building data
+async function calculateAzimuth(startCoords, endCoords) {
   const date = new Date();
   const hour = date.getHours();
 
-  // Azimuth calculation (for solar and building angles)
   const azimuthCalculator = new Azimuth(startCoords[0], startCoords[1], endCoords[0], endCoords[1], date, hour);
-  console.log("ehlloworld",azimuthCalculator);
   const sunAzimuth = azimuthCalculator.calculateSolarAzimuth(startCoords[0], startCoords[1], date, hour);
-  console.log(sunAzimuth);
   const buildingAzimuth = azimuthCalculator.calculateBuildingAzimuth(startCoords[0], startCoords[1], endCoords[0], endCoords[1]);
-  console.log(buildingAzimuth);
+
+  console.log("Sun Azimuth:", sunAzimuth);
+  console.log("Building Azimuth:", buildingAzimuth);
+  console.log("Walking Routes:", walkingRoutes);
+  console.log("Cycling Routes:", cyclingRoutes);
+  console.log("Driving Routes:", drivingRoutes);
+  console.log("Route Metadata:", routeMetadata);
+  
+  const buildingDataProcessor = await initializeBuildingProcessor(walkingRoutes, cyclingRoutes, drivingRoutes, routeMetadata);
+
+  // Function to calculate and display shadow coverage for each route type
+  async function calculateShadowCoverageForAllRoutes() {
+    for (let routeType of ['walking', 'cycling', 'driving']) {
+      let routeData = routeMetadata[routeType];
+      for (let i = 0; i < routeData.length; i++) {
+        const route = routeData[i];
+        const latitudestart = route.coordinates[0][1]; // Assuming coordinates are [lon, lat]
+        const dayOfYear = 100; // Example day of the year (e.g., April 10th)
+        const solarTime = 12.5; // Example solar time (e.g., 12:30 PM)
+        const sunAzimuth = 180; // Example sun azimuth (in degrees)
+        const buildingAzimuth = 90; // Example building azimuth (in degrees)
+  
+        const shadowCalculator = new ShadowCoverageCalculator(
+          buildingDataProcessor,
+          routeType,
+          latitudestart,
+          dayOfYear,
+          solarTime,
+          sunAzimuth,
+          buildingAzimuth
+        );
+        const shadowCoverage = shadowCalculator.calculateShadowCoverage();
+        console.log(`${routeType.charAt(0).toUpperCase() + routeType.slice(1)} route shadow coverage: ${shadowCoverage}%`);
+      }
+    }
+  }
+  calculateShadowCoverageForAllRoutes();
 }
+
+
+
+// Your input routes data
+
+
+
+
 

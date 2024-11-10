@@ -1,150 +1,152 @@
-const fetch = require('node-fetch'); // Import node-fetch
-
-// Helper function to calculate distance between two coordinates in meters
-function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371e3; // Earth's radius in meters
-  const φ1 = lat1 * Math.PI / 180;
-  const φ2 = lat2 * Math.PI / 180;
-  const Δφ = (lat2 - lat1) * Math.PI / 180;
-  const Δλ = (lon2 - lon1) * Math.PI / 180;
-
-  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-            Math.cos(φ1) * Math.cos(φ2) * 
-            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return R * c; // Returns the distance in meters
-}
-
 class BuildingDataProcessor {
-  constructor(routes) {
-    this.routes = routes;
-    this.walkingBuildings = [];
-    this.cyclingBuildings = [];
-    this.drivingBuildings = [];
-    this.processRoutes();
-  }
-
-  // Main function to process routes and create building data
-  async processRoutes() {
-    for (const route of this.routes) {
-      const routeType = this.getRouteType(route.index);
+    constructor(walkingRoutes, cyclingRoutes, drivingRoutes, routeMetadata) {
+      this.walkingRoutes = walkingRoutes;
+      this.cyclingRoutes = cyclingRoutes;
+      this.drivingRoutes = drivingRoutes;
+      this.routeMetadata = routeMetadata;
+      this.walkingBuildings = [];
+      this.cyclingBuildings = [];
+      this.drivingBuildings = [];
+    }
+  
+    async processAllRoutes() {
+      await Promise.all([
+        this.processRouteType('walking', this.walkingRoutes),
+        this.processRouteType('cycling', this.cyclingRoutes),
+        this.processRouteType('driving', this.drivingRoutes)
+      ]);
+    }
+  
+    async processRouteType(type, routes) {
+      const buildings = [];
+      
+      for (const route of routes) {
+        const routeBuildingData = await this.processRoute(route);
+        buildings.push(...routeBuildingData.filter(building => building !== null));
+      }
+  
+      switch (type) {
+        case 'walking':
+          this.walkingBuildings = buildings;
+          break;
+        case 'cycling':
+          this.cyclingBuildings = buildings;
+          break;
+        case 'driving':
+          this.drivingBuildings = buildings;
+          break;
+      }
+    }
+  
+    async processRoute(routeCoordinates) {
       const buildingDataArray = [];
-
-      // Loop through each point in the route to create building objects
-      for (let i = 0; i < route.routeCoordinates.length - 1; i++) {
-        const start = route.routeCoordinates[i];
-        const end = route.routeCoordinates[i + 1];
-
-        // Fetch building data
-        const leftBuilding = await this.createBuildingObject(start, end, 'left');
-        const rightBuilding = await this.createBuildingObject(start, end, 'right');
-
-        // Add both buildings to the array for the current route
-        buildingDataArray.push(leftBuilding, rightBuilding);
+      let currentDistance = 0; // Initialize cumulative distance
+  
+      for (let i = 0; i < routeCoordinates.length - 1; i++) {
+        const start = routeCoordinates[i];
+        const end = routeCoordinates[i + 1];
+  
+        // Calculate the distance between start and end
+        const segmentDistance = calculateDistance(start[1], start[0], end[1], end[0]);
+        currentDistance += segmentDistance; // Update cumulative distance
+  
+        const [leftBuilding, rightBuilding] = await Promise.all([
+          this.createBuildingObject(start, end, 'left', currentDistance),
+          this.createBuildingObject(start, end, 'right', currentDistance)
+        ]);
+  
+        if (leftBuilding) buildingDataArray.push(leftBuilding);
+        if (rightBuilding) buildingDataArray.push(rightBuilding);
       }
-
-      // Store the processed building data based on the route type
-      if (routeType === 'walking') {
-        this.walkingBuildings = buildingDataArray;
-      } else if (routeType === 'cycling') {
-        this.cyclingBuildings = buildingDataArray;
-      } else if (routeType === 'driving') {
-        this.drivingBuildings = buildingDataArray;
+  
+      return buildingDataArray;
+    }
+  
+    async checkForBuilding(lat, lon) {
+      const query = `
+        [out:json];
+        (
+          way["building"](around:15, ${lat}, ${lon});
+        );
+        out body geom;
+      `;
+      const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+  
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (!data.elements || data.elements.length === 0) {
+          return null;
+        }
+  
+        const building = data.elements[0];
+        return {
+          exists: true,
+          height: building.tags?.height ? parseFloat(building.tags.height) : 
+                 building.tags?.["building:levels"] ? parseFloat(building.tags["building:levels"]) * 3 : 
+                 10,
+          type: building.tags?.["building:type"] || building.tags?.building || "unknown"
+        };
+      } catch (error) {
+        console.error("Error checking for building:", error);
+        return null;
+      }
+    }
+  
+     async createBuildingObject(start, end, side, distanceAlongRoute) {
+      // Calculate perpendicular offset (typical sidewalk width is ~2 meters)
+      const bearing = Math.atan2(end[1] - start[1], end[0] - start[0]);
+      const sidewalkWidth = 2; // meters
+      const buildingSetback = 5; // meters from sidewalk to building
+      const totalOffset = (sidewalkWidth + buildingSetback) / 111320; // convert to degrees (approximate)
+  
+      // Calculate offset direction based on side
+      const offsetBearing = side === 'left' ? bearing - Math.PI / 2 : bearing + Math.PI / 2;
+      
+      // Calculate potential building location
+      const latitude = start[1] + totalOffset * Math.sin(offsetBearing);
+      const longitude = start[0] + totalOffset * Math.cos(offsetBearing);
+  
+      // Check if there's actually a building at this location
+      const buildingData = await this.checkForBuilding(latitude, longitude);
+      
+      if (!buildingData) {
+        return null;
+      }
+  
+      return {
+        latitude,
+        longitude,
+        height: buildingData.height,
+        side,
+        buildingType: buildingData.type,
+        distanceFromStart: distanceAlongRoute, // Distance along the route
+        distanceFromRoute: sidewalkWidth + buildingSetback,
+        routeSegmentStart: start,
+        routeSegmentEnd: end
+      };
+    }
+  
+    getAllBuildingsData() {
+      return {
+        walking: this.walkingBuildings,
+        cycling: this.cyclingBuildings,
+        driving: this.drivingBuildings
+      };
+    }
+  
+    getBuildingsByType(type) {
+      switch (type) {
+        case 'walking':
+          return this.walkingBuildings;
+        case 'cycling':
+          return this.cyclingBuildings;
+        case 'driving':
+          return this.drivingBuildings;
+        default:
+          return [];
       }
     }
   }
-
-  // Method to determine the route type based on its index
-  getRouteType(index) {
-    switch (index) {
-      case 0:
-        return 'walking';
-      case 1:
-        return 'cycling';
-      case 2:
-        return 'driving';
-      default:
-        return 'unknown';
-    }
-  }
-
-  // Fetch building height from OpenStreetMap using Overpass API
-  async fetchBuildingHeight(lat, lon) {
-    const query = `
-      [out:json];
-      (
-        node(around:10, ${lat}, ${lon});
-        way(around:10, ${lat}, ${lon});
-        relation(around:10, ${lat}, ${lon});
-      );
-      out body;
-    `;
-    const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-
-    try {
-      const response = await fetch(url);
-      const data = await response.json();
-      const building = data.elements.find(element => element.tags && element.tags.height);
-      if (building && building.tags.height) {
-        return parseFloat(building.tags.height); // Return the height if available
-      }
-      return 50; // Default height if no height is found
-    } catch (error) {
-      console.error("Error fetching building height:", error);
-      return 50; // Default height on error
-    }
-  }
-
-  // Create a building object on the left or right side of the given segment
-  async createBuildingObject(start, end, side) {
-    // Fetch building height from OpenStreetMap
-    const height = await this.fetchBuildingHeight(start[1], start[0]); // OSM uses [lat, lon], so swap
-
-    // Calculate building position relative to the route segment using perpendicular offset
-    const offsetDistance = 0.0001; // Small distance for visualization, can be adjusted
-    const dx = end[0] - start[0];
-    const dy = end[1] - start[1];
-
-    // Determine perpendicular offset direction
-    const offsetX = (side === 'left' ? -dy : dy) * offsetDistance;
-    const offsetY = (side === 'left' ? dx : -dx) * offsetDistance;
-
-    // Calculate new latitude and longitude for the building
-    const latitude = start[1] + offsetY;
-    const longitude = start[0] + offsetX;
-
-    // Calculate the distance from the start point to the building
-    const distanceFromStart = calculateDistance(start[1], start[0], latitude, longitude);
-
-    // Create the building object
-    return {
-      latitude: latitude,
-      longitude: longitude,
-      height: height,
-      side: side,
-      distanceFromStart: distanceFromStart, // Add distance from start to the building
-    };
-  }
-
-  // Method to get all processed buildings data
-  getAllBuildingsData() {
-    return {
-      walking: this.walkingBuildings,
-      cycling: this.cyclingBuildings,
-      driving: this.drivingBuildings,
-    };
-  }
-}
-
-// Example usage
-const allRoutes = [
-  // Your route data goes here
-];
-const buildingDataProcessor = new BuildingDataProcessor(allRoutes);
-buildingDataProcessor.processRoutes().then(() => {
-  const allBuildingsData = buildingDataProcessor.getAllBuildingsData();
-  console.log('Walking Buildings:', allBuildingsData.walking);
-  console.log('Cycling Buildings:', allBuildingsData.cycling);
-  console.log('Driving Buildings:', allBuildingsData.driving);
-});
+  

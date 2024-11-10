@@ -13,7 +13,7 @@ export class Azimuth {
    calculateSolarAzimuth(startLat, startLon,date, timeOfDay ) {
     // Convert latitude and longitude to radians
     const latRad = startLat * (Math.PI / 180);
-    const lonRad = startLon * (Math.PI / 180);
+    
     
     // Calculate day of the year (Julian day)
     const start = new Date(date.getFullYear(), 0, 0);
