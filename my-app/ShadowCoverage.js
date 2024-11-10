@@ -1,4 +1,4 @@
-class ShadowCoverageCalculator {
+export class ShadowCoverage {
   constructor(buildingDataProcessor, routeType, latitudestart, dayOfYear, solarTime, sunAzimuth, buildingAzimuth) {
     // Retrieve the list of buildings for the specified route type
     this.buildings = buildingDataProcessor.getBuildingsByType(routeType);

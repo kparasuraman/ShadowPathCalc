@@ -10,6 +10,11 @@ import { Style, Stroke } from 'ol/style';
 import * as olExtent from 'ol/extent';
 import { Azimuth } from './azimuth';
 
+
+import { BuildingDataProcessor } from './BuildingData.js';
+console.log(BuildingDataProcessor);
+import { ShadowCoverage } from './ShadowCoverage.js';
+console.log(ShadowCoverage);
 // Initialize the map
 const map = new Map({
   target: 'map',
@@ -144,7 +149,19 @@ function storeRouteData(routeType, coordinates, metadata) {
       break;
   }
 }
+// Using async/await with the module import
+async function initialize() {
+  const { BuildingDataProcessor } = await import('./BuildingData.js');
+  
+  // Now use BuildingDataProcessor here
+  let processor = new BuildingDataProcessor(walkingRoutes, cyclingRoutes, drivingRoutes, routeMetadata);
+  let buildingsWalking = processor.getBuildingsByType('walking');
+  
+  let buildingscycling = processor.getBuildingsByType('cycling');
+  let buildingsdriving = processor.getBuildingsByType('driving');
+}
 
+initialize();  // Call initialize function to load and use BuildingDataProcessor
 // Function to clear previous routes
 function clearRoutes() {
   walkingRoutes = [];
@@ -274,8 +291,8 @@ calculateButton.addEventListener('click', async () => {
   clearError();
   showLoading();
 
-  const startLocation = startInput.value;
-  const endLocation = endInput.value;
+  let startLocation = startInput.value;
+  let endLocation = endInput.value;
 
   if (!startLocation || !endLocation) {
     showError('Please enter both start and end locations');
@@ -302,13 +319,15 @@ endInput.addEventListener('input', () => {
   fetchAutocompleteSuggestions(endInput.value, endInput, endSuggestions);
 });
 // Initialize and process the building data
-async function calculateAzimuth(startCoords, endCoords) {
-  const date = new Date();
-  const hour = date.getHours();
 
-  const azimuthCalculator = new Azimuth(startCoords[0], startCoords[1], endCoords[0], endCoords[1], date, hour);
-  const sunAzimuth = azimuthCalculator.calculateSolarAzimuth(startCoords[0], startCoords[1], date, hour);
-  const buildingAzimuth = azimuthCalculator.calculateBuildingAzimuth(startCoords[0], startCoords[1], endCoords[0], endCoords[1]);
+async function calculateAzimuth(startCoords, endCoords) {
+  let date = new Date();
+  let hour = date.getHours();
+
+  let azimuthCalculator = new Azimuth(startCoords[0], startCoords[1], endCoords[0], endCoords[1], date, hour);
+  let sunAzimuth = azimuthCalculator.calculateSolarAzimuth(startCoords[0], startCoords[1], date, hour);
+  let buildingAzimuth = azimuthCalculator.calculateBuildingAzimuth(startCoords[0], startCoords[1], endCoords[0], endCoords[1]);
+  let solarTime = hour + (4 * (startCoords[1] - 15 * (date.getTimezoneOffset() / 60)) / 60); // approx. solar time
 
   console.log("Sun Azimuth:", sunAzimuth);
   console.log("Building Azimuth:", buildingAzimuth);
@@ -317,42 +336,63 @@ async function calculateAzimuth(startCoords, endCoords) {
   console.log("Driving Routes:", drivingRoutes);
   console.log("Route Metadata:", routeMetadata);
   
-  const buildingDataProcessor = await initializeBuildingProcessor(walkingRoutes, cyclingRoutes, drivingRoutes, routeMetadata);
+  
 
   // Function to calculate and display shadow coverage for each route type
   async function calculateShadowCoverageForAllRoutes() {
-    for (let routeType of ['walking', 'cycling', 'driving']) {
-      let routeData = routeMetadata[routeType];
-      for (let i = 0; i < routeData.length; i++) {
-        const route = routeData[i];
-        const latitudestart = route.coordinates[0][1]; // Assuming coordinates are [lon, lat]
-        const dayOfYear = 100; // Example day of the year (e.g., April 10th)
-        const solarTime = 12.5; // Example solar time (e.g., 12:30 PM)
-        const sunAzimuth = 180; // Example sun azimuth (in degrees)
-        const buildingAzimuth = 90; // Example building azimuth (in degrees)
-  
-        const shadowCalculator = new ShadowCoverageCalculator(
-          buildingDataProcessor,
-          routeType,
-          latitudestart,
-          dayOfYear,
-          solarTime,
-          sunAzimuth,
-          buildingAzimuth
-        );
+    
+    let shadowCalculator = new ShadowCoverage(
+      walking,
+      routeType,
+      latitudestart,
+      dayOfYear,
+      solarTime,
+      sunAzimuth,
+      buildingAzimuth
+    );
+       
         const shadowCoverage = shadowCalculator.calculateShadowCoverage();
         console.log(`${routeType.charAt(0).toUpperCase() + routeType.slice(1)} route shadow coverage: ${shadowCoverage}%`);
       }
-    }
-  }
-  calculateShadowCoverageForAllRoutes();
+    
+  
+  console.log(calculateShadowCoverage());
 }
 
+function calculateShadowCoverage() {
+  let shadowCoveredDistance = 0;
+  let totalDistance = 0;
+  
+  
+  // Now use BuildingDataProcessor here
+  let processor = new BuildingDataProcessor(walkingRoutes, cyclingRoutes, drivingRoutes, routeMetadata);
+  let buildingsWalking = processor.getBuildingsByType('walking');
+  for (let i = 0; i < processor.getBuildingsByType('walking').length - 1; i++) {
+    const building = buildingsWalking[i];
+    const nextBuilding = buildingsWalking[i + 1];
 
+    const segmentDistance = nextBuilding.distanceFromStart - building.distanceFromStart;
+    totalDistance += segmentDistance;
 
-// Your input routes data
+    const shadowCalculatorInstance = new ShadowCalculator(start[0], date, solarTime, processor.getBuildingsByType('walking').height);
+    const shadowLength = shadowCalculatorInstance.calculateShadowLength() + 2;
 
+    const shadowCoversSidewalk = shadowLength >= 2;
+    const shadowOnSidewalk = isShadowOnSidewalk(sunAzimuth, buildingAzimuth, processor.getBuildingsByType('walking').side);
 
+    if (shadowCoversSidewalk && shadowOnSidewalk) {
+      shadowCoveredDistance += segmentDistance;
+    }
+  }
 
-
-
+  let shadowCoveragePercentage = totalDistance > 0 ? (shadowCoveredDistance / totalDistance) * 100 : 0;
+  console.log(shadowCoveragePercentage.toFixed(2))
+}
+function isShadowOnSidewalk(sunAzimuth, buildingAzimuth, buildingSidewalkSide) {
+    const angleDifference = Math.abs(sunAzimuth - buildingAzimuth);
+    if (buildingSidewalkSide === 'left') {
+      return angleDifference > 90 && angleDifference < 270;
+    } else {
+      return angleDifference <= 90 || angleDifference >= 270;
+    }
+  }

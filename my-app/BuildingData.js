@@ -1,4 +1,4 @@
-class BuildingDataProcessor {
+export class BuildingDataProcessor {
     constructor(walkingRoutes, cyclingRoutes, drivingRoutes, routeMetadata) {
       this.walkingRoutes = walkingRoutes;
       this.cyclingRoutes = cyclingRoutes;
@@ -137,16 +137,16 @@ class BuildingDataProcessor {
     }
   
     getBuildingsByType(type) {
-      switch (type) {
-        case 'walking':
-          return this.walkingBuildings;
-        case 'cycling':
-          return this.cyclingBuildings;
-        case 'driving':
-          return this.drivingBuildings;
-        default:
-          return [];
+        switch (type) {
+          case 'walking':
+            return this.walkingBuildings;
+          case 'cycling':
+            return this.cyclingBuildings;
+          case 'driving':
+            return this.drivingBuildings;
+          default:
+            return [];
+        }
       }
-    }
   }
   
