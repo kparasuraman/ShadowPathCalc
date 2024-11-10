@@ -7,6 +7,7 @@ import VectorSource from 'ol/source/Vector';
 import { Feature } from 'ol';
 import { LineString } from 'ol/geom';
 import { Style, Stroke } from 'ol/style';
+import * as olExtent from 'ol/extent';
 
 // Initialize the map
 const map = new Map({
@@ -149,6 +150,9 @@ async function fetchRoutes(startCoords, endCoords) {
     }
   ];
 
+  // Collect all route coordinates to calculate bounding box
+  let allCoordinates = [];
+
   // Fetch routes with distinct parameters for each request
   const routeRequests = randomRouteParams.map((params) => {
     return fetch(
@@ -177,6 +181,9 @@ async function fetchRoutes(startCoords, endCoords) {
           const routeLine = new LineString(routeCoordinates);
           const routeFeature = new Feature({ geometry: routeLine });
 
+          // Add all coordinates for bounding box calculation
+          allCoordinates = [...allCoordinates, ...routeCoordinates];
+
           // Generate a random color for each route to differentiate them
           const randomColor = `rgb(${Math.floor(Math.random() * 256)}, ${Math.floor(Math.random() * 256)}, ${Math.floor(Math.random() * 256)})`;
 
@@ -202,46 +209,47 @@ async function fetchRoutes(startCoords, endCoords) {
         showError('No route found.');
       }
     });
+
+    // After all routes are added, fit the map to the bounding box of all coordinates
+    if (allCoordinates.length > 0) {
+      const extent = olExtent.boundingExtent(allCoordinates);
+      map.getView().fit(extent, { padding: [50, 50, 50, 50] }); // Padding for better visibility
+    }
+
   } catch (error) {
     console.error('Error fetching routes:', error);
     showError('Failed to fetch routes.');
   }
 }
 
-// Event listeners
-startInput.addEventListener('input', (event) => {
-  fetchAutocompleteSuggestions(event.target.value, startInput, startSuggestions);
+// Event listeners for start and end inputs
+startInput.addEventListener('input', () => {
+  fetchAutocompleteSuggestions(startInput.value, startInput, startSuggestions);
 });
 
-endInput.addEventListener('input', (event) => {
-  fetchAutocompleteSuggestions(event.target.value, endInput, endSuggestions);
+endInput.addEventListener('input', () => {
+  fetchAutocompleteSuggestions(endInput.value, endInput, endSuggestions);
 });
 
-// Add event listener for Calculate button
+// Event listener for calculate button
 calculateButton.addEventListener('click', async () => {
-  clearError();
-  vectorSource.clear();
-
-  const startLocation = startInput.value.trim();
-  const endLocation = endInput.value.trim();
+  const startLocation = startInput.value;
+  const endLocation = endInput.value;
 
   if (!startLocation || !endLocation) {
     showError('Please enter both start and end locations.');
     return;
   }
 
-  showLoading();
-
   try {
-    const [startCoords, endCoords] = await Promise.all([
-      fetchCoordinates(startLocation),
-      fetchCoordinates(endLocation),
-    ]);
+    clearError();
+    showLoading();
 
-    // Fetch multiple distinct routes with different parameters
-    await fetchRoutes(startCoords, endCoords);
+    const startCoords = await fetchCoordinates(startLocation);
+    const endCoords = await fetchCoordinates(endLocation);
+
+    fetchRoutes(startCoords, endCoords);
   } catch (error) {
-    console.error('Error:', error);
     showError(error.message);
   } finally {
     hideLoading();

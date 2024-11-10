@@ -1,4 +1,4 @@
-import './style.css';
+/*import './style.css';
 import { Map, View } from 'ol';
 import TileLayer from 'ol/layer/Tile';
 import OSM from 'ol/source/OSM';
@@ -140,4 +140,4 @@ function calculateRoutes() {
 }
 
 // Event listener for the "Calculate Routes" button
-document.getElementById('calculate-button').addEventListener('click', calculateRoutes); 
+document.getElementById('calculate-button').addEventListener('click', calculateRoutes); */
