@@ -1,8 +1,7 @@
 class ShadowCoverageCalculator {
-  constructor(buildingData, sidewalkWidth, sidewalkSide, latitude, dayOfYear, solarTime) {
+  constructor(buildingData, sidewalkSide, latitude, dayOfYear, solarTime) {
     this.buildingData = buildingData; // Array of objects with { height, distanceFromStart, buildingAzimuth }
     this.buildingData.sort((a, b) => a.distanceFromStart - b.distanceFromStart);
-    this.sidewalkWidth = sidewalkWidth; // Width of the sidewalk
     this.sidewalkSide = sidewalkSide; // Side of the sidewalk relative to the walking path, 'left' or 'right'
     this.latitude = latitude; // Latitude for shadow calculation
     this.dayOfYear = dayOfYear; // Day of the year (1 to 365)
@@ -25,6 +24,9 @@ class ShadowCoverageCalculator {
 
     // Loop through each building along the path
     for (let i = 0; i < this.buildingData.length - 1; i++) {
+      const azimuthCalculator = new Azimuth(this.latitude, this.longitude, this.date, this.timeOfDay);
+      const sunAzimuth = azimuthCalculator.calculateSolarAzimuth(); // Solar azimuth value for the sun
+
       const building = this.buildingData[i];
       const nextBuilding = this.buildingData[i + 1];
       
@@ -37,7 +39,7 @@ class ShadowCoverageCalculator {
       const shadowLength = shadowCalculatorInstance.calculateShadowLength();
 
       // Check if the shadow length covers the sidewalk width and if it's on the sidewalk side
-      const shadowCoversSidewalk = shadowLength >= this.sidewalkWidth;
+      const shadowCoversSidewalk = shadowLength >= 2;
       const shadowOnSidewalk = this.isShadowOnSidewalk(this.solarTime, building.buildingAzimuth);
 
       if (shadowCoversSidewalk && shadowOnSidewalk) {
@@ -51,20 +53,10 @@ class ShadowCoverageCalculator {
   }
 }
 
-// Example usage:
-const buildingData = [
-  { height: 20, distanceFromStart: 0 },
-  { height: 15, distanceFromStart: 50 },
-  { height: 10, distanceFromStart: 100 },
-  { height: 25, distanceFromStart: 150 }
-];
-const sidewalkWidth = 3; // Assume an average sidewalk width of 3 meters
-const sunAngle = 45; // Sun angle in degrees
-
 // Initialize the calculator
-const calculator = new ShadowCoverageCalculator(buildingData, sidewalkWidth);
+const calculator = new ShadowCoverageCalculator(buildingData, sidewalkSide, latitudestart, dayOfYear, solarTime);
 
 // Calculate shadow coverage
-const shadowCoverage = calculator.calculateShadowCoverage(sunAngle);
+const shadowCoverage = calculator.calculateShadowCoverage();
 
 console.log(`Shadow coverage percentage: ${shadowCoverage}%`);

@@ -50,23 +50,21 @@ class Azimuth {
   }
   
   // Example usage:
-  const latitude = 40.7128;  // Example latitude
-  const longitude = -74.0060; // Example longitude
-  const date = new Date(); // Current date
-  const timeOfDay = 14.5; // Example time in hours (2:30 PM)
-  
-  // Instantiate Azimuth calculator
-  const azimuthCalculator = new Azimuth(latitude, longitude, date, timeOfDay);
-  
-  // Calculate solar azimuth
-  const sunAzimuth = azimuthCalculator.calculateSolarAzimuth();
-  console.log(`Solar Azimuth Angle: ${solarAzimuth}°`);
-  
-  // Example coordinates for building and sidewalk from OpenLayers
-  const buildingCoordinates = { lat: 40.7128, lon: -74.0061 };
-  const sidewalkCoordinates = { lat: 40.7129, lon: -74.0062 };
-  
-  // Calculate building azimuth
-  const buildingAzimuth = azimuthCalculator.calculateBuildingAzimuth(buildingCoordinates, sidewalkCoordinates);
-  console.log(`Building Azimuth Angle: ${buildingAzimuth}°`);
+const latitude = 40.7128;  // Example latitude
+const longitude = -74.0060; // Example longitude
+const date = new Date(); // Current date
+const timeOfDay = 14.5; // Example time in hours (2:30 PM)
+
+// Instantiate Azimuth calculator
+const azimuthCalculator = new Azimuth(startLat, startLon, endLat, endLon, date, timeOfDay);
+
+// Calculate solar azimuth
+const sunAzimuth = azimuthCalculator.calculateSolarAzimuth(date, timeOfDay);
+console.log(`Solar Azimuth Angle: ${solarAzimuth}°`);
+
+// Example coordinates for building and sidewalk from OpenLayers
+
+// Calculate building azimuth
+const buildingAzimuth = azimuthCalculator.calculateBuildingAzimuth(startLat, startLon, endLat, endLon);
+console.log(`Building Azimuth Angle: ${buildingAzimuth}°`);
   

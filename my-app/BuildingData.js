@@ -1,70 +1,150 @@
-class BuildingHeightCollector {
+const fetch = require('node-fetch'); // Import node-fetch
+
+// Helper function to calculate distance between two coordinates in meters
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371e3; // Earth's radius in meters
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) * 
+            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c; // Returns the distance in meters
+}
+
+class BuildingDataProcessor {
   constructor(routes) {
-    this.routes = routes; // Array of routes (each route is an array of coordinates)
-    this.buildingsByRoute = []; // Array to store buildings for each route
+    this.routes = routes;
+    this.walkingBuildings = [];
+    this.cyclingBuildings = [];
+    this.drivingBuildings = [];
+    this.processRoutes();
   }
 
-  async collectBuildingData() {
-    // Loop through each route and collect building data
-    for (let i = 0; i < this.routes.length; i++) {
-      const route = this.routes[i];
-      const buildings = [];
+  // Main function to process routes and create building data
+  async processRoutes() {
+    for (const route of this.routes) {
+      const routeType = this.getRouteType(route.index);
+      const buildingDataArray = [];
 
-      // Loop through each point in the route and collect building data for the right side
-      for (let j = 0; j < route.length; j++) {
-        const point = route[j];
-        const rightSideCoord = this.getRightSideCoordinate(point); // Function to get right-side coordinates
+      // Loop through each point in the route to create building objects
+      for (let i = 0; i < route.routeCoordinates.length - 1; i++) {
+        const start = route.routeCoordinates[i];
+        const end = route.routeCoordinates[i + 1];
 
-        // Fetch building data at this coordinate (mock API or real API for height data)
-        const building = await this.getBuildingHeight(rightSideCoord);
-        if (building) {
-          buildings.push(building);
-        }
+        // Fetch building data
+        const leftBuilding = await this.createBuildingObject(start, end, 'left');
+        const rightBuilding = await this.createBuildingObject(start, end, 'right');
+
+        // Add both buildings to the array for the current route
+        buildingDataArray.push(leftBuilding, rightBuilding);
       }
 
-      // After collecting for the route, store it in the buildingsByRoute array
-      this.buildingsByRoute.push(buildings);
+      // Store the processed building data based on the route type
+      if (routeType === 'walking') {
+        this.walkingBuildings = buildingDataArray;
+      } else if (routeType === 'cycling') {
+        this.cyclingBuildings = buildingDataArray;
+      } else if (routeType === 'driving') {
+        this.drivingBuildings = buildingDataArray;
+      }
     }
   }
 
-  async getBuildingHeight(coordinate) {
-    // Mock function to fetch building data (you can replace this with a real API call)
-    // Assuming we fetch building height, lat, and long from some API
-    const height = Math.random() * 100;  // Example height
-    const latitude = coordinate[0];
-    const longitude = coordinate[1];
-    return { height, latitude, longitude }; // Return building object
+  // Method to determine the route type based on its index
+  getRouteType(index) {
+    switch (index) {
+      case 0:
+        return 'walking';
+      case 1:
+        return 'cycling';
+      case 2:
+        return 'driving';
+      default:
+        return 'unknown';
+    }
   }
 
-  getRightSideCoordinate(point) {
-    // Logic to calculate the right side coordinate of the person walking along the route
-    // This function should be implemented to calculate the right-side coordinates
-    // based on the route geometry (e.g., a walking path or line).
-    const offset = 0.0001; // Small offset to simulate right side of the route
-    return [point[0] + offset, point[1]];
+  // Fetch building height from OpenStreetMap using Overpass API
+  async fetchBuildingHeight(lat, lon) {
+    const query = `
+      [out:json];
+      (
+        node(around:10, ${lat}, ${lon});
+        way(around:10, ${lat}, ${lon});
+        relation(around:10, ${lat}, ${lon});
+      );
+      out body;
+    `;
+    const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
+      const building = data.elements.find(element => element.tags && element.tags.height);
+      if (building && building.tags.height) {
+        return parseFloat(building.tags.height); // Return the height if available
+      }
+      return 50; // Default height if no height is found
+    } catch (error) {
+      console.error("Error fetching building height:", error);
+      return 50; // Default height on error
+    }
+  }
+
+  // Create a building object on the left or right side of the given segment
+  async createBuildingObject(start, end, side) {
+    // Fetch building height from OpenStreetMap
+    const height = await this.fetchBuildingHeight(start[1], start[0]); // OSM uses [lat, lon], so swap
+
+    // Calculate building position relative to the route segment using perpendicular offset
+    const offsetDistance = 0.0001; // Small distance for visualization, can be adjusted
+    const dx = end[0] - start[0];
+    const dy = end[1] - start[1];
+
+    // Determine perpendicular offset direction
+    const offsetX = (side === 'left' ? -dy : dy) * offsetDistance;
+    const offsetY = (side === 'left' ? dx : -dx) * offsetDistance;
+
+    // Calculate new latitude and longitude for the building
+    const latitude = start[1] + offsetY;
+    const longitude = start[0] + offsetX;
+
+    // Calculate the distance from the start point to the building
+    const distanceFromStart = calculateDistance(start[1], start[0], latitude, longitude);
+
+    // Create the building object
+    return {
+      latitude: latitude,
+      longitude: longitude,
+      height: height,
+      side: side,
+      distanceFromStart: distanceFromStart, // Add distance from start to the building
+    };
+  }
+
+  // Method to get all processed buildings data
+  getAllBuildingsData() {
+    return {
+      walking: this.walkingBuildings,
+      cycling: this.cyclingBuildings,
+      driving: this.drivingBuildings,
+    };
   }
 }
 
 // Example usage
-const routes = [
-  [
-    [51.5074, -0.1278],  // Start of Route 1
-    [51.5075, -0.1277],  // Next point on Route 1
-    // more points...
-  ],
-  [
-    [51.5084, -0.1288],  // Start of Route 2
-    [51.5085, -0.1287],  // Next point on Route 2
-    // more points...
-  ],
-  [
-    [51.5094, -0.1298],  // Start of Route 3
-    [51.5095, -0.1297],  // Next point on Route 3
-    // more points...
-  ]
+const allRoutes = [
+  // Your route data goes here
 ];
-
-const collector = new BuildingHeightCollector(routes);
-collector.collectBuildingData().then(() => {
-  console.log(collector.buildingsByRoute); // Array of buildings for each route
+const buildingDataProcessor = new BuildingDataProcessor(allRoutes);
+buildingDataProcessor.processRoutes().then(() => {
+  const allBuildingsData = buildingDataProcessor.getAllBuildingsData();
+  console.log('Walking Buildings:', allBuildingsData.walking);
+  console.log('Cycling Buildings:', allBuildingsData.cycling);
+  console.log('Driving Buildings:', allBuildingsData.driving);
 });

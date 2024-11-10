@@ -8,6 +8,7 @@ import { Feature } from 'ol';
 import { LineString } from 'ol/geom';
 import { Style, Stroke } from 'ol/style';
 import * as olExtent from 'ol/extent';
+import { Azimuth } from './azimuth';
 
 // Initialize the map
 const map = new Map({
@@ -45,6 +46,9 @@ const errorDiv = document.getElementById('error-message');
 const loadingDiv = document.getElementById('loading');
 const routeList = document.getElementById('route-list');
 
+// Store the routes in an array
+let allRoutes = [];
+
 // Show and clear error messages
 function showError(message) {
   errorDiv.textContent = message;
@@ -70,6 +74,7 @@ async function fetchCoordinates(location) {
       `${geocodeUrl}?api_key=${apiKey}&text=${encodeURIComponent(location)}&size=1`
     );
     const data = await response.json();
+    
     if (data.features && data.features.length > 0) {
       const [lon, lat] = data.features[0].geometry.coordinates;
       return [lon, lat];
@@ -120,13 +125,13 @@ async function fetchRoutes(startCoords, endCoords) {
   const randomRouteParams = [
     {
       type: 'foot-walking',
-      avoidPolygons: Math.random() > 0.5,  // 50% chance to avoid polygons
-      avoidAreas: Math.random() > 0.5,     // 50% chance to avoid areas
-      preferredRoute: ['shortest', 'fastest', 'recommended'][Math.floor(Math.random() * 3)], // Randomly choose route type
-      maxAlternatives: Math.floor(Math.random() * 4) + 1, // Random number of alternatives (1 to 4)
-      routeGeometry: Math.random() > 0.5 ? 'false' : 'true', // Random geometry calculation
-      avoidRoads: Math.random() > 0.5 ? 'highways' : 'residential', // Random road type to avoid
-      waypoints: `${startCoords[0] + Math.random() * 0.01},${startCoords[1] + Math.random() * 0.01}|${endCoords[0] + Math.random() * 0.01},${endCoords[1] + Math.random() * 0.01}`, // Add random waypoints
+      avoidPolygons: Math.random() > 0.5,  
+      avoidAreas: Math.random() > 0.5,     
+      preferredRoute: ['shortest', 'fastest', 'recommended'][Math.floor(Math.random() * 3)], 
+      maxAlternatives: Math.floor(Math.random() * 4) + 1, 
+      routeGeometry: Math.random() > 0.5 ? 'false' : 'true', 
+      avoidRoads: Math.random() > 0.5 ? 'highways' : 'residential', 
+      waypoints: `${startCoords[0] + Math.random() * 0.01},${startCoords[1] + Math.random() * 0.01}|${endCoords[0] + Math.random() * 0.01},${endCoords[1] + Math.random() * 0.01}`,
     },
     {
       type: 'cycling-regular',
@@ -150,10 +155,8 @@ async function fetchRoutes(startCoords, endCoords) {
     }
   ];
 
-  // Collect all route coordinates to calculate bounding box
   let allCoordinates = [];
 
-  // Fetch routes with distinct parameters for each request
   const routeRequests = randomRouteParams.map((params) => {
     return fetch(
       `${directionsUrl}${params.type}?api_key=${apiKey}&start=${startCoords.join(',')}&end=${endCoords.join(',')}` +
@@ -168,10 +171,8 @@ async function fetchRoutes(startCoords, endCoords) {
     const responses = await Promise.all(routeRequests);
     const routesData = await Promise.all(responses.map((response) => response.json()));
 
-    // Clear the route list display before adding new routes
     routeList.innerHTML = '';
 
-    // Loop through all routes and add them to the map
     routesData.forEach((data, index) => {
       if (data.features && data.features.length > 0) {
         data.features.forEach((selectedRoute, idx) => {
@@ -181,48 +182,74 @@ async function fetchRoutes(startCoords, endCoords) {
           const routeLine = new LineString(routeCoordinates);
           const routeFeature = new Feature({ geometry: routeLine });
 
-          // Add all coordinates for bounding box calculation
           allCoordinates = [...allCoordinates, ...routeCoordinates];
 
-          // Generate a random color for each route to differentiate them
           const randomColor = `rgb(${Math.floor(Math.random() * 256)}, ${Math.floor(Math.random() * 256)}, ${Math.floor(Math.random() * 256)})`;
 
-          // Style the route with different color and opacity based on index
           routeFeature.setStyle(
             new Style({
               stroke: new Stroke({
-                color: randomColor, // Different color for each route
-                width: 4 + idx, // Adjust width for better visual distinction
-                opacity: 0.8 - idx * 0.2, // Gradual opacity decrease for visibility
+                color: randomColor,
+                width: 4 + idx,
+                opacity: 0.8 - idx * 0.2,
               }),
             })
           );
 
-          // Add route to map and UI
           vectorSource.addFeature(routeFeature);
-          
-          const routeItem = document.createElement('li');
-          routeItem.textContent = `Route ${index + 1} (Alternative ${idx + 1})`;
+
+          const routeItem = document.createElement('div');
+          routeItem.textContent = `Route ${idx + 1}: ${selectedRoute.properties.summary}`;
           routeList.appendChild(routeItem);
+
+          allRoutes.push({
+            summary: selectedRoute.properties.summary,
+            coordinates: routeCoordinates,
+            distance: selectedRoute.properties.distance,
+            duration: selectedRoute.properties.duration,
+            type: randomRouteParams[index].type,
+          });
         });
-      } else {
-        showError('No route found.');
       }
     });
-
-    // After all routes are added, fit the map to the bounding box of all coordinates
-    if (allCoordinates.length > 0) {
-      const extent = olExtent.boundingExtent(allCoordinates);
-      map.getView().fit(extent, { padding: [50, 50, 50, 50] }); // Padding for better visibility
-    }
+    calculateAzimuth(startCoords, endCoords);
+    const extent = olExtent.boundingExtent(allCoordinates);
+    map.getView().fit(extent, { padding: [20, 20, 20, 20], duration: 1000 });
 
   } catch (error) {
-    console.error('Error fetching routes:', error);
-    showError('Failed to fetch routes.');
+    showError('Error fetching routes. Please try again.');
+    console.error(error);
+  } finally {
+    hideLoading();
   }
 }
 
-// Event listeners for start and end inputs
+// Event listener for calculating route on button click
+calculateButton.addEventListener('click', async () => {
+  clearError();
+  showLoading();
+
+  const startLocation = startInput.value;
+  const endLocation = endInput.value;
+
+  if (!startLocation || !endLocation) {
+    showError('Please enter both start and end locations');
+    hideLoading();
+    return;
+  }
+
+  try {
+    const startCoords = await fetchCoordinates(startLocation);
+    const endCoords = await fetchCoordinates(endLocation);
+
+    await fetchRoutes(startCoords, endCoords);
+  } catch (error) {
+    showError(error.message);
+    hideLoading();
+  }
+});
+
+// Event listeners for autocomplete suggestions
 startInput.addEventListener('input', () => {
   fetchAutocompleteSuggestions(startInput.value, startInput, startSuggestions);
 });
@@ -231,27 +258,16 @@ endInput.addEventListener('input', () => {
   fetchAutocompleteSuggestions(endInput.value, endInput, endSuggestions);
 });
 
-// Event listener for calculate button
-calculateButton.addEventListener('click', async () => {
-  const startLocation = startInput.value;
-  const endLocation = endInput.value;
+ function calculateAzimuth(startCoords, endCoords) {
+  const date = new Date();
+  const hour = date.getHours();
 
-  if (!startLocation || !endLocation) {
-    showError('Please enter both start and end locations.');
-    return;
-  }
+  // Azimuth calculation (for solar and building angles)
+  const azimuthCalculator = new Azimuth(startCoords[0], startCoords[1], endCoords[0], endCoords[1], date, hour);
+  console.log("ehlloworld",azimuthCalculator);
+  const sunAzimuth = azimuthCalculator.calculateSolarAzimuth(startCoords[0], startCoords[1], date, hour);
+  console.log(sunAzimuth);
+  const buildingAzimuth = azimuthCalculator.calculateBuildingAzimuth(startCoords[0], startCoords[1], endCoords[0], endCoords[1]);
+  console.log(buildingAzimuth);
+}
 
-  try {
-    clearError();
-    showLoading();
-
-    const startCoords = await fetchCoordinates(startLocation);
-    const endCoords = await fetchCoordinates(endLocation);
-
-    fetchRoutes(startCoords, endCoords);
-  } catch (error) {
-    showError(error.message);
-  } finally {
-    hideLoading();
-  }
-});
